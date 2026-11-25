@@ -20,14 +20,14 @@ const FORM_CHECKS = {
  *
  * ID teknis seperti jenisLayanan tidak ditampilkan kepada pengguna.
  */
-// const FIELD_LABELS = {
-//     nama: "Nama Lengkap",
-//     noWa: "Nomor WhatsApp",
-//     dusun: "Dusun",
-//     rt: "RT",
-//     jenisLayanan: "Jenis Layanan",
-//     tanggalDatang: "Tanggal Datang ke Balai Desa"
-// };
+const FIELD_LABELS = {
+    nama: "Nama Lengkap",
+    noWa: "Nomor WhatsApp",
+    dusun: "Dusun",
+    rt: "RT",
+    jenisLayanan: "Jenis Layanan",
+    tanggalDatang: "Tanggal Datang ke Balai Desa"
+};
 
 
 /*
