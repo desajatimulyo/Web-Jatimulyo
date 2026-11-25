@@ -1,4 +1,4 @@
-const NAMA_SHEET = "Pendaftaran";
+const NAMA_SHEET = "Database Pelayanan Desa Jatimulyo";
 const ZONA_WAKTU = "Asia/Jakarta";
 const HARI_TUTUP = [0, 6];
 const BATAS_MUTLAK = 5000;
@@ -11,4 +11,3 @@ const JALUR_VALID = ["Online", "Offline"];
 const REGEX_WA = /^(\+62|62|0)8[1-9][0-9]{6,11}$/;
 const REGEX_RT = /^\d{1,3}$/;
 const REGEX_KODE = /^JTM-[0-9]{8}-[A-Z0-9]{4}$/;
-
