@@ -132,7 +132,7 @@ function showFormErrors(errors) {
 
     for (const error of errors) {
         const listItem = document.createElement("li");
-        // const fieldLabel = FIELD_LABELS[error.fieldId];
+        const fieldLabel = FIELD_LABELS[error.fieldId];
 
         listItem.textContent = fieldLabel
             ? `${fieldLabel}. ${error.message}`
