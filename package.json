@@ -1,0 +1,9 @@
+{
+    "name": "web-jatimulyo",
+    "private": true,
+    "scripts": {
+        "test": "node --test tests/build.test.js",
+        "test:live": "node tests/security.test.js",
+        "build": "bash build-css.sh"
+    }
+}

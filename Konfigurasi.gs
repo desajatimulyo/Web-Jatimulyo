@@ -1,0 +1,14 @@
+const NAMA_SHEET = "Pendaftaran";
+const ZONA_WAKTU = "Asia/Jakarta";
+const HARI_TUTUP = [0, 6];
+const BATAS_MUTLAK = 5000;
+const BATAS_PUBLIK = 500;
+const HEADERS = ["Timestamp", "Nama Lengkap", "Nomor WhatsApp", "Dusun", "RT", "Jenis Layanan", "Tanggal Kedatangan", "Jalur", "Kode Tracking", "Status Pelayanan", "Catatan"];
+const DUSUN_VALID = ["I A", "I B", "I C", "I D", "II A", "II B", "II C", "II D", "III", "IV", "V A", "V B"];
+const LAYANAN_VALID = ["Surat Keterangan Usaha (SKU)", "Surat Keterangan Tidak Mampu (SKTM)", "Surat Keterangan Domisili", "Surat Keterangan Beda Nama", "Surat Pengantar SKCK"];
+const STATUS_VALID = ["Diproses", "Siap Diambil", "Selesai"];
+const JALUR_VALID = ["Online", "Offline"];
+const REGEX_WA = /^(\+62|62|0)8[1-9][0-9]{6,11}$/;
+const REGEX_RT = /^\d{1,3}$/;
+const REGEX_KODE = /^JTM-[0-9]{8}-[A-Z0-9]{4}$/;
+

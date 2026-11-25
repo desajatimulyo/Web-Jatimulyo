@@ -1,89 +1,131 @@
-const modalTriggers = new Map();
+/*
+ * Menyimpan elemen yang membuka setiap modal.
+ *
+ * Ketika modal ditutup, fokus dikembalikan ke elemen tersebut.
+ * Map diperlukan karena halaman dapat memiliki beberapa modal.
+ */
+const modalOpeners = new Map();
 
-function focusableElements(modal) {
-    return Array.from(
-        modal.querySelectorAll(
-            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        )
-    );
+
+/*
+ * Mengambil semua elemen yang dapat menerima fokus di dalam modal.
+ *
+ * Daftar ini digunakan untuk:
+ * - memindahkan fokus saat modal dibuka
+ * - menjaga tombol Tab tetap berada di dalam modal
+ *
+ * Elemen disabled dan tabindex="-1" tidak disertakan karena memang
+ * tidak dapat atau tidak boleh menerima fokus.
+ */
+function getFocusableElements(modal) {
+    return Array.from(modal.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
 }
 
-function openModal(id) {
-    const modal = $(id);
 
-    modalTriggers.set(id, document.activeElement);
+/*
+ * Membuka modal, memindahkan fokus ke dalamnya, dan menjaga fokus
+ * agar tidak keluar selama modal masih terbuka.
+ *
+ * Escape menutup modal.
+ * Tab bergerak maju di dalam modal.
+ * Shift + Tab bergerak mundur di dalam modal.
+ */
+function openModal(modalId) {
+    const modal = $(modalId);
+
+    /*
+     * Jangan membuka modal yang sudah terbuka.
+     *
+     * Tanpa pemeriksaan ini, listener keyboard dapat terpasang
+     * lebih dari sekali pada modal yang sama.
+     */
+    if (!modal.classList.contains("hidden")) return;
+
+    modalOpeners.set(modalId, document.activeElement);
+
     modal.classList.remove("hidden");
     modal.classList.add("flex");
     document.body.classList.add("overflow-hidden");
 
-    const focusable = focusableElements(modal);
+    const firstFocusableElement = getFocusableElements(modal)[0];
 
-    if (focusable.length) {
-        focusable[0].focus();
-    }
+    if (firstFocusableElement) firstFocusableElement.focus();
 
-    const handleKeydown = (event) => {
+    /*
+     * Listener disimpan pada modal agar listener yang sama dapat
+     * dilepas kembali ketika modal ditutup.
+     */
+    modal.handleModalKeydown = (event) => {
         if (event.key === "Escape") {
-            closeModalById(id);
+            event.preventDefault();
+            closeModalById(modalId);
             return;
         }
 
         if (event.key !== "Tab") return;
 
-        const elements = focusableElements(modal);
+        /*
+         * Daftar diambil ulang karena tombol dapat berubah menjadi
+         * disabled atau hidden selama modal terbuka.
+         */
+        const focusableElements = getFocusableElements(modal);
 
-        if (!elements.length) {
+        if (focusableElements.length === 0) {
             event.preventDefault();
+            modal.focus();
             return;
         }
 
-        const first = elements[0];
-        const last = elements[elements.length - 1];
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
 
-        if (
-            event.shiftKey
-            && document.activeElement === first
-        ) {
+        if (event.shiftKey && document.activeElement === firstElement) {
             event.preventDefault();
-            last.focus();
+            lastElement.focus();
+            return;
         }
 
-        if (
-            !event.shiftKey
-            && document.activeElement === last
-        ) {
+        if (!event.shiftKey && document.activeElement === lastElement) {
             event.preventDefault();
-            first.focus();
+            firstElement.focus();
         }
     };
 
-    modal._handleKeydown = handleKeydown;
-    modal.addEventListener("keydown", handleKeydown);
+    modal.addEventListener("keydown", modal.handleModalKeydown);
 }
 
-function closeModalById(id) {
-    const modal = $(id);
+
+/*
+ * Menutup modal dan mengembalikan fokus ke elemen yang membukanya.
+ *
+ * Scroll halaman hanya dibuka kembali jika tidak ada modal atau
+ * peringatan lain yang masih terbuka.
+ */
+function closeModalById(modalId) {
+    const modal = $(modalId);
 
     if (modal.classList.contains("hidden")) return;
 
     modal.classList.add("hidden");
     modal.classList.remove("flex");
-    if (!document.querySelector(".modal-backdrop.flex, .warn-overlay.flex")) document.body.classList.remove("overflow-hidden");
 
-    if (modal._handleKeydown) {
-        modal.removeEventListener(
-            "keydown",
-            modal._handleKeydown
-        );
-
-        delete modal._handleKeydown;
+    if (modal.handleModalKeydown) {
+        modal.removeEventListener("keydown", modal.handleModalKeydown);
+        delete modal.handleModalKeydown;
     }
 
-    const trigger = modalTriggers.get(id);
+    const modalOpener = modalOpeners.get(modalId);
+    modalOpeners.delete(modalId);
 
-    modalTriggers.delete(id);
+    const anotherOverlayIsOpen = document.querySelector(
+        ".modal-backdrop.flex, .warn-overlay.flex"
+    );
 
-    if (trigger && trigger.isConnected) {
-        trigger.focus();
+    if (!anotherOverlayIsOpen) {
+        document.body.classList.remove("overflow-hidden");
     }
+
+    if (modalOpener?.isConnected) modalOpener.focus();
 }

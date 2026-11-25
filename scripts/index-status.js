@@ -1,116 +1,283 @@
+/*
+ * Petunjuk yang ditampilkan kepada warga untuk setiap status.
+ *
+ * pending tetap didukung untuk data lama dan memiliki arti yang
+ * sama dengan diproses.
+ */
+const STATUS_GUIDE = {
+    pending: "Berkas Anda sedang diperiksa petugas. Silakan menunggu, tidak ada yang perlu dilakukan sekarang.",
+    diproses: "Berkas Anda sedang diperiksa petugas. Silakan menunggu, tidak ada yang perlu dilakukan sekarang.",
+    "siap diambil": "Berkas Anda sudah siap. Datang ke Balai Desa pada tanggal kedatangan Anda, lalu tunjukkan Kode Tracking ini kepada Operator.",
+    selesai: "Pelayanan Anda sudah selesai dan berkas sudah diserahkan.",
+    unknown: "Status tidak dikenali. Silakan hubungi petugas Balai Desa untuk keterangan lebih lanjut."
+};
+
+
+/*
+ * Memperbarui langkah pelayanan berdasarkan status saat ini.
+ *
+ * activeStep:
+ * 0 = sedang diproses
+ * 1 = siap diambil
+ * 2 = selesai
+ * -1 = status tidak dikenali
+ */
 function renderSteps(activeStep) {
-    $("res-steps").querySelectorAll("li").forEach((li, i) => {
-        if (activeStep >= 0 && i <= activeStep) li.setAttribute("data-done", "");
-        else li.removeAttribute("data-done");
+    const steps = $("res-steps").querySelectorAll("li");
+
+    steps.forEach((step, stepNumber) => {
+        step.toggleAttribute("data-done", activeStep >= 0 && stepNumber <= activeStep);
     });
 }
 
-function showStatusError(msg) {
-    const el = $("status-error");
-    if (msg) { el.textContent = msg; el.classList.remove("hidden"); }
-    else { el.textContent = ""; el.classList.add("hidden"); }
+
+/*
+ * Menampilkan atau menyembunyikan error pemeriksaan status.
+ */
+function showStatusError(message) {
+    const errorBox = $("status-error");
+
+    errorBox.textContent = message || "";
+    errorBox.classList.toggle("hidden", !message);
 }
 
+
+/*
+ * Memberikan tanda visual ketika format kode tracking sudah benar.
+ */
 function liveKodeFeedback() {
-    const el = $("trackingCode");
-    const v = el.value.trim().toUpperCase();
-    el.classList.toggle("field-ok", v.length > 0 && KODE_REGEX.test(v));
+    const trackingCodeInput = $("trackingCode");
+    const trackingCode = trackingCodeInput.value.trim().toUpperCase();
+
+    trackingCodeInput.classList.toggle(
+        "field-ok",
+        KODE_REGEX.test(trackingCode)
+    );
 }
 
-function checkKode(v) {
-    const s = v.trim().toUpperCase();
-    if (!s) return "Masukkan Kode Tracking terlebih dahulu.";
-    return KODE_REGEX.test(s) ? "" : "Masukkan Kode Tracking lengkap.";
+
+/*
+ * Memeriksa kode tracking sebelum dikirim ke server.
+ *
+ * Teks kosong berarti kode valid.
+ * Teks berisi pesan berarti kode perlu diperbaiki.
+ */
+function checkKode(value) {
+    const trackingCode = value.trim().toUpperCase();
+
+    if (!trackingCode) {
+        return "Masukkan Kode Tracking terlebih dahulu.";
+    }
+
+    if (!KODE_REGEX.test(trackingCode)) {
+        return "Format Kode Tracking: JTM-DDMMYYYY-XXXX, contoh JTM-16112026-A1B2.";
+    }
+
+    return "";
 }
 
+
+/*
+ * Validasi langsung mulai aktif setelah pengguna selesai mengubah
+ * field untuk pertama kali.
+ */
 attachLiveValidation("trackingCode", checkKode);
 
-$("trackingCode").addEventListener("input", (e) => {
-    e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 29);
+
+/*
+ * Kode tracking hanya boleh berisi huruf, angka, dan tanda hubung.
+ *
+ * Huruf otomatis diubah menjadi kapital dan panjang input dibatasi
+ * agar pengguna tidak dapat memasukkan teks yang tidak diperlukan.
+ */
+$("trackingCode").addEventListener("input", (event) => {
+    event.target.value = event.target.value
+        .toUpperCase()
+        .replace(/[^A-Z0-9-]/g, "")
+        .slice(0, 29);
+
     liveKodeFeedback();
 });
 
-function paintKodeList(container, rows) {
+
+/*
+ * Menampilkan tombol kode tracking yang pernah disimpan.
+ *
+ * Setiap tombol menampilkan kode dan status terakhirnya. Ketika
+ * diklik, kode tersebut dimasukkan kembali ke field pelacakan.
+ */
+function renderSavedCodeButtons(container, registrations) {
     container.textContent = "";
-    rows.forEach((row) => {
-        const style = getStatusStyle(row.status);
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "kode-item";
-        const full = document.createElement("span");
-        full.className = "kode-item-full";
-        full.textContent = row.full;
-        const badge = document.createElement("span");
-        badge.className = "badge";
-        badge.dataset.status = style.key;
-        badge.textContent = style.label;
-        btn.appendChild(full);
-        btn.appendChild(badge);
-        btn.addEventListener("click", () => {
-            $("trackingCode").value = row.full;
+
+    for (const registration of registrations) {
+        const statusStyle = getStatusStyle(registration.status);
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "kode-item";
+
+        const trackingCode = document.createElement("span");
+        trackingCode.className = "kode-item-full";
+        trackingCode.textContent = registration.trackingCode;
+
+        const statusBadge = document.createElement("span");
+        statusBadge.className = "badge";
+        statusBadge.dataset.status = statusStyle.key;
+        statusBadge.textContent = statusStyle.label;
+
+        button.append(trackingCode, statusBadge);
+
+        button.addEventListener("click", () => {
+            $("trackingCode").value = registration.trackingCode;
             liveKodeFeedback();
             $("trackingCode").focus();
         });
-        container.appendChild(btn);
+
+        container.appendChild(button);
+    }
+}
+
+
+/*
+ * Memeriksa status seluruh kode tracking yang tersimpan di browser.
+ *
+ * Setiap hasil langsung ditampilkan ketika responsnya diterima.
+ * Pengguna tidak perlu menunggu semua pemeriksaan selesai.
+ *
+ * Kode yang gagal diperiksa tidak ditampilkan karena statusnya belum
+ * dapat dipastikan. Kode tersebut tetap tersimpan di browser.
+ */
+function renderSavedCodes() {
+    const savedCodes = readKodeList();
+
+    $("kode-list-box").classList.toggle("hidden", savedCodes.length === 0);
+    if (savedCodes.length === 0) return;
+
+    const checkedRegistrations = savedCodes.map(() => null);
+
+    /*
+     * Render ulang daftar setiap kali satu status selesai diperiksa.
+     *
+     * Urutan kode tetap mengikuti urutan dari readKodeList(), meskipun
+     * respons server dapat tiba dalam urutan yang berbeda.
+     */
+    function repaintSavedCodes() {
+        const activeRegistrations = [];
+        const completedRegistrations = [];
+
+        for (const registration of checkedRegistrations) {
+            if (!registration) continue;
+
+            if (getStatusStyle(registration.status).key === "selesai") {
+                completedRegistrations.push(registration);
+            } else {
+                activeRegistrations.push(registration);
+            }
+        }
+
+        renderSavedCodeButtons($("kode-list-aktif"), activeRegistrations);
+        renderSavedCodeButtons($("kode-list-selesai"), completedRegistrations);
+
+        $("kode-aktif-wrap").classList.toggle("hidden", activeRegistrations.length === 0);
+        $("kode-selesai-wrap").classList.toggle("hidden", completedRegistrations.length === 0);
+    }
+
+    /*
+     * Kosongkan tampilan lama sebelum respons baru mulai masuk.
+     */
+    repaintSavedCodes();
+
+    savedCodes.forEach((trackingCode, codeNumber) => {
+        callApi({ action: "checkStatus", trackingCode })
+            .then((result) => {
+                checkedRegistrations[codeNumber] = {
+                    trackingCode,
+                    status: result.statusPelayanan
+                };
+
+                repaintSavedCodes();
+            })
+            .catch(() => {
+                /*
+                 * Kegagalan satu kode tidak boleh menghentikan
+                 * pemeriksaan kode-kode lainnya.
+                 */
+            });
     });
 }
 
-function renderKodeList() {
-    const codes = readKodeList();
-    $("kode-list-box").classList.toggle("hidden", !codes.length);
-    if (!codes.length) return;
-    Promise.allSettled(codes.map((full) =>
-        callApi({ action: "checkStatus", trackingCode: full })
-    )).then((results) => {
-        const aktif = [];
-        const selesai = [];
-        results.forEach((r, i) => {
-            if (r.status !== "fulfilled") return;
-            const row = { full: codes[i], status: r.value.statusPelayanan };
-            if (getStatusStyle(row.status).key === "selesai") selesai.push(row);
-            else aktif.push(row);
-        });
-        paintKodeList($("kode-list-aktif"), aktif);
-        paintKodeList($("kode-list-selesai"), selesai);
-        $("kode-aktif-wrap").classList.toggle("hidden", !aktif.length);
-        $("kode-selesai-wrap").classList.toggle("hidden", !selesai.length);
-    });
-}
 
-$("form-status").addEventListener("submit", async (e) => {
-    e.preventDefault();
+/*
+ * Memeriksa satu kode tracking yang dikirim melalui form.
+ *
+ * Alurnya:
+ * 1. validasi kode
+ * 2. kirim kode ke server
+ * 3. simpan kode pada riwayat lokal
+ * 4. tampilkan hasil dan petunjuk kepada warga
+ */
+$("form-status").addEventListener("submit", async (event) => {
+    event.preventDefault();
+
     showStatusError("");
     $("status-result").classList.add("hidden");
 
-    const kode = $("trackingCode").value.trim().toUpperCase();
-    const kodeMsg = checkKode(kode);
-    if (kodeMsg) { setFieldError("trackingCode", kodeMsg); $("trackingCode").focus(); return; }
-    setFieldError("trackingCode", "");
+    const trackingCode = $("trackingCode").value.trim().toUpperCase();
+    const validationMessage = checkKode(trackingCode);
 
-    setLoading("btn-status", "spin-status", "label-status", true, "Memeriksa status...");
-
-    let data;
-    try {
-        data = await callApi({ action: "checkStatus", trackingCode: kode });
-    } catch (err) {
-        showStatusError(err.message);
-        setLoading("btn-status", "spin-status", "label-status", false, "Memeriksa status...");
+    if (validationMessage) {
+        setFieldError("trackingCode", validationMessage);
+        $("trackingCode").focus();
         return;
     }
-    addKode(String(data.trackingCode).toUpperCase());
 
-    const style = getStatusStyle(data.statusPelayanan);
+    setFieldError("trackingCode", "");
+    setLoading("btn-status", "spin-status", "label-status", true, "Memeriksa status...");
 
-    $("res-kode").textContent = data.trackingCode || kode;
-    $("res-layanan").textContent = data.jenisLayanan || "-";
-    $("res-tanggal").textContent = formatTanggalPanjang(data.tanggalDatang);
+    try {
+        const result = await callApi({
+            action: "checkStatus",
+            trackingCode
+        });
 
-    const badge = $("res-badge");
-    badge.dataset.status = style.key;
-    badge.textContent = style.label;
+        const returnedTrackingCode = String(
+            result.trackingCode || trackingCode
+        ).toUpperCase();
 
-    renderSteps(style.step);
-    $("status-result").classList.remove("hidden");
-    $("status-result").scrollIntoView({ block: "nearest" });
-    setLoading("btn-status", "spin-status", "label-status", false, "Memeriksa status...");
+        addKode(returnedTrackingCode);
+
+        /*
+         * Seluruh tampilan status mengikuti nilai yang dikembalikan
+         * server, bukan nilai yang diperkirakan oleh browser.
+         */
+        const statusStyle = getStatusStyle(result.statusPelayanan);
+
+        $("res-kode").textContent = returnedTrackingCode;
+        $("res-layanan").textContent = result.jenisLayanan || "-";
+        $("res-tanggal").textContent = formatTanggalPanjang(result.tanggalDatang);
+
+        $("res-badge").dataset.status = statusStyle.key;
+        $("res-badge").textContent = statusStyle.label;
+
+        renderSteps(statusStyle.step);
+
+        $("res-guide").textContent =
+            STATUS_GUIDE[statusStyle.key] || STATUS_GUIDE.unknown;
+
+        $("status-result").classList.remove("hidden");
+        $("status-result").scrollIntoView({
+            block: "nearest",
+            behavior: "smooth"
+        });
+    } catch (error) {
+        showStatusError(
+            error.message || "Status gagal diperiksa. Silakan coba lagi."
+        );
+    } finally {
+        /*
+         * Tombol harus selalu kembali normal, baik pemeriksaan
+         * berhasil maupun gagal.
+         */
+        setLoading("btn-status", "spin-status", "label-status", false, "Memeriksa status...");
+    }
 });

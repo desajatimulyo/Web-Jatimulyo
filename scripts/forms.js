@@ -1,66 +1,148 @@
-function swapLabel(el, busyText, busy) {
-    if (busy) el.dataset.idle = el.textContent;
-    el.textContent = busy ? busyText : el.dataset.idle;
+/*
+ * Merapikan nomor telepon sebelum divalidasi atau dikirim.
+ *
+ * Fungsi hanya menghapus spasi dan tanda pemisah umum.
+ * Awalan nomor tidak diubah di sini.
+ *
+ * Contoh:
+ * 0812-3456-7890 menjadi 081234567890
+ * +62 (812) 3456 7890 menjadi +6281234567890
+ */
+function normalizePhone(value) {
+    return String(value || "").trim().replace(/[\s\-().]/g, "");
 }
 
-function setLoading(btnId, spinId, labelId, loading, textLoading) {
-    const button = $(btnId);
+
+/*
+ * Mengubah tombol ke keadaan memuat atau kembali ke keadaan normal.
+ *
+ * Saat memuat:
+ * - tombol dinonaktifkan
+ * - spinner ditampilkan
+ * - ikon biasa disembunyikan
+ * - teks tombol diganti
+ * - form atau modal diberi aria-busy="true"
+ *
+ * Teks asli disimpan pada data-idle agar dapat dikembalikan setelah
+ * proses selesai.
+ */
+function setLoading(buttonId, spinnerId, labelId, isLoading, loadingText) {
+    const button = $(buttonId);
+    const spinner = $(spinnerId);
     const label = $(labelId);
-    const region = button.closest("form, [role=dialog]");
-    button.disabled = loading;
-    button.setAttribute("aria-disabled", String(loading));
-    button.classList.toggle("is-loading", loading);
-    $(spinId).classList.toggle("hidden", !loading);
-    const idleIcon = button.querySelector(".action-icon");
-    if (idleIcon) idleIcon.classList.toggle("hidden", loading);
+    const formOrDialog = button.closest("form, [role=dialog]");
+    const normalIcon = button.querySelector(".action-icon");
+
+    if (isLoading && !label.dataset.idle) {
+        label.dataset.idle = label.textContent;
+    }
+
+    button.disabled = isLoading;
+    button.setAttribute("aria-disabled", String(isLoading));
+    button.classList.toggle("is-loading", isLoading);
+
+    spinner.classList.toggle("hidden", !isLoading);
+
+    if (normalIcon) {
+        normalIcon.classList.toggle("hidden", isLoading);
+    }
+
+    label.textContent = isLoading ? loadingText : label.dataset.idle;
     label.setAttribute("role", "status");
     label.setAttribute("aria-live", "polite");
-    swapLabel(label, textLoading, loading);
-    if (region) region.setAttribute("aria-busy", String(loading));
+
+    if (formOrDialog) {
+        formOrDialog.setAttribute("aria-busy", String(isLoading));
+    }
 }
 
-function setFieldError(field, message) {
-    const el = document.querySelector(`[data-err][data-for="${field}"]`);
-    const input = $(field);
-    const wrap = input.closest(".field");
+
+/*
+ * Menampilkan atau menghapus pesan kesalahan pada satu field.
+ *
+ * fieldId harus cocok dengan:
+ * - id milik input
+ * - data-for milik elemen pesan error
+ *
+ * Contoh:
+ * input id="w-nama"
+ * pesan data-err data-for="w-nama"
+ */
+function setFieldError(fieldId, message) {
+    const input = $(fieldId);
+    const errorMessage = document.querySelector(
+        `[data-err][data-for="${fieldId}"]`
+    );
+    const fieldContainer = input.closest(".field");
+
+    errorMessage.textContent = message || "";
+    errorMessage.classList.toggle("hidden", !message);
+    fieldContainer.classList.toggle("field-invalid", Boolean(message));
+
     if (message) {
-        el.textContent = message;
-        el.classList.remove("hidden");
         input.setAttribute("aria-invalid", "true");
-        wrap.classList.add("field-invalid");
     } else {
-        el.textContent = "";
-        el.classList.add("hidden");
         input.removeAttribute("aria-invalid");
-        wrap.classList.remove("field-invalid");
     }
 }
 
-function attachLiveValidation(field, check) {
-    let touched = false;
-    $(field).addEventListener("change", () => {
-        touched = true;
-        setFieldError(field, check($(field).value));
+
+/*
+ * Memasang validasi langsung pada satu field.
+ *
+ * Error pertama kali ditampilkan setelah pengguna selesai mengubah
+ * field dan memicu event change. Setelah itu, pesan diperbarui pada
+ * setiap input agar segera hilang ketika nilainya sudah benar.
+ */
+function attachLiveValidation(fieldId, validate) {
+    let hasBeenValidated = false;
+
+    $(fieldId).addEventListener("change", () => {
+        hasBeenValidated = true;
+        setFieldError(fieldId, validate($(fieldId).value));
     });
-    $(field).addEventListener("input", () => {
-        if (touched) setFieldError(field, check($(field).value));
+
+    $(fieldId).addEventListener("input", () => {
+        if (hasBeenValidated) {
+            setFieldError(fieldId, validate($(fieldId).value));
+        }
     });
 }
 
-function syncBerkas(containerId, nama) {
-    $(containerId).querySelectorAll("[data-berkas]").forEach((el) => {
-        el.classList.toggle("hidden", el.dataset.berkas !== nama);
-    });
+
+/*
+ * Menampilkan daftar berkas yang cocok dengan layanan terpilih.
+ *
+ * Semua daftar lain disembunyikan. Jika nama layanan kosong atau
+ * tidak ditemukan, seluruh daftar berkas akan tersembunyi.
+ */
+function syncBerkas(containerId, serviceName) {
+    const documentLists = $(containerId).querySelectorAll("[data-berkas]");
+
+    for (const documentList of documentLists) {
+        const belongsToSelectedService =
+            documentList.dataset.berkas === serviceName;
+
+        documentList.classList.toggle(
+            "hidden",
+            !belongsToSelectedService
+        );
+    }
 }
 
-function normalizePhone(raw) {
-    return String(raw || "").trim().replace(/[\s\-().]/g, "");
-}
 
-
+/*
+ * Mencegah form dikirim lagi ketika proses sebelumnya masih berjalan.
+ *
+ * setLoading() memberi aria-busy="true" pada form yang sedang
+ * diproses. Listener ini menangkap percobaan submit berikutnya
+ * sebelum listener submit lain dijalankan.
+ */
 document.addEventListener("submit", (event) => {
-    if (event.target.getAttribute("aria-busy") === "true") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
+    if (event.target.getAttribute("aria-busy") !== "true") {
+        return;
     }
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
 }, true);

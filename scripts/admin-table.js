@@ -1,3 +1,53 @@
+/*
+ * Pengaturan daftar.
+ *
+ * PAGE_SIZE menentukan jumlah kartu yang ditampilkan dalam satu halaman.
+ * SORTS berisi seluruh pilihan pengurutan yang tersedia pada filter.
+ */
+const PAGE_SIZE = 10;
+
+const SORTS = {
+    newest: (a, b) =>
+        String(b.timestamp).localeCompare(String(a.timestamp)),
+
+    "date-asc": (a, b) =>
+        String(a.tanggalDatang).localeCompare(String(b.tanggalDatang))
+        || String(a.nama).localeCompare(String(b.nama), "id-ID"),
+
+    "date-desc": (a, b) =>
+        String(b.tanggalDatang).localeCompare(String(a.tanggalDatang))
+        || String(a.nama).localeCompare(String(b.nama), "id-ID")
+};
+
+
+/*
+ * toastTimer menyimpan timer agar toast sebelumnya dapat dibatalkan.
+ *
+ * view dan page dimiliki scripts/admin.js sebagai keadaan utama dashboard.
+ */
+let toastTimer = null;
+
+
+/*
+ * Mengubah nilai apa pun menjadi teks kecil yang sudah dirapikan.
+ *
+ * Fungsi ini digunakan ketika perbandingan tidak boleh terpengaruh
+ * huruf besar, huruf kecil, spasi, null, atau undefined.
+ */
+function lower(value) {
+    return String(value || "").trim().toLowerCase();
+}
+
+
+/*
+ * Mengubah nomor Indonesia ke bentuk lokal yang diawali angka 0.
+ *
+ * Contoh:
+ * 6281234567890 menjadi 081234567890
+ * 81234567890 menjadi 081234567890
+ *
+ * Semua karakter selain angka dibuang.
+ */
 function formatPhoneId(value) {
     const digits = String(value || "").replace(/\D/g, "");
 
@@ -8,19 +58,16 @@ function formatPhoneId(value) {
     return digits;
 }
 
-const PAGE_SIZE = 12;
-const SORTS = {
-    "newest": (a, b) => String(b.timestamp).localeCompare(String(a.timestamp)),
-    "date-asc": (a, b) => String(a.tanggalDatang).localeCompare(String(b.tanggalDatang)) || String(a.nama).localeCompare(String(b.nama)),
-    "date-desc": (a, b) => String(b.tanggalDatang).localeCompare(String(a.tanggalDatang)) || String(a.nama).localeCompare(String(b.nama), "id-ID")
-};
 
-let view = [];
-let toastTimer = null;
-let page = 1;
-
+/*
+ * Menampilkan tanggal dan waktu menggunakan format Indonesia.
+ *
+ * Zona waktu dipaksa ke Asia/Jakarta agar hasil tidak berubah
+ * mengikuti pengaturan zona waktu perangkat operator.
+ */
 function formatDateTimeId(value) {
     if (!value) return "-";
+
     return new Intl.DateTimeFormat("id-ID", {
         dateStyle: "long",
         timeStyle: "short",
@@ -28,150 +75,318 @@ function formatDateTimeId(value) {
     }).format(new Date(value));
 }
 
+
+/*
+ * Menampilkan atau menyembunyikan pesan kesalahan utama.
+ *
+ * Pesan kosong berarti banner harus disembunyikan.
+ */
 function showError(message) {
-    const el = $("error-banner");
-    if (message) {
-        el.textContent = message;
-        el.classList.remove("hidden");
-    } else {
-        el.textContent = "";
-        el.classList.add("hidden");
-    }
+    const banner = $("error-banner");
+
+    banner.textContent = message || "";
+    banner.classList.toggle("hidden", !message);
 }
 
+
+/*
+ * Menampilkan pemberitahuan singkat selama 2,2 detik.
+ *
+ * Timer sebelumnya dibatalkan agar toast terbaru selalu mendapat
+ * waktu tampil penuh.
+ */
 function toast(message) {
-    const el = $("toast");
-    el.textContent = message;
-    el.classList.remove("hidden");
-    el.classList.add("reveal");
+    const toastElement = $("toast");
+
     clearTimeout(toastTimer);
+
+    toastElement.textContent = message;
+    toastElement.classList.remove("hidden");
+    toastElement.classList.add("reveal");
+
     toastTimer = setTimeout(() => {
-        el.classList.add("hidden");
-        el.classList.remove("reveal");
+        toastElement.classList.add("hidden");
+        toastElement.classList.remove("reveal");
     }, 2200);
 }
 
+
+/*
+ * Memperbarui status koneksi pada header.
+ *
+ * Waktu koneksi hanya ditampilkan ketika state bernilai "ok".
+ */
 function setConnState(state, text) {
-    const el = $("conn");
-    el.dataset.state = state;
+    $("conn").dataset.state = state;
     $("conn-state").textContent = text;
-    $("conn-time").textContent = state === "ok"
-        ? new Intl.DateTimeFormat("id-ID", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(".", ":") + " WIB"
-        : "";
+
+    if (state !== "ok") {
+        $("conn-time").textContent = "";
+        return;
+    }
+
+    const time = new Intl.DateTimeFormat("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+    }).format(new Date());
+
+    $("conn-time").textContent = time.replace(".", ":") + " WIB";
 }
 
+
+/*
+ * Menghitung statistik langsung dari seluruh data pendaftaran.
+ *
+ * "Datang Hari Ini" tidak menghitung pelayanan yang sudah selesai.
+ */
 function renderStats() {
     const today = todayYmd();
-    const key = (s) => String(s || "").trim().toLowerCase();
-    $("stat-today").textContent = rows.filter((r) => r.tanggalDatang === today && key(r.statusPelayanan) !== "selesai").length;
+
+    const arrivingToday = rows.filter((row) =>
+        row.tanggalDatang === today
+        && lower(row.statusPelayanan) !== "selesai"
+    ).length;
+
+    const processing = rows.filter((row) =>
+        lower(row.statusPelayanan) === "diproses"
+    ).length;
+
+    const readyForPickup = rows.filter((row) =>
+        lower(row.statusPelayanan) === "siap diambil"
+    ).length;
+
+    $("stat-today").textContent = arrivingToday;
     $("stat-total").textContent = rows.length;
-    $("stat-proses").textContent = rows.filter((r) => key(r.statusPelayanan) === "diproses").length;
-    $("stat-selesai").textContent = rows.filter((r) => key(r.statusPelayanan) === "selesai").length;
+    $("stat-proses").textContent = processing;
+    $("stat-siap-diambil").textContent = readyForPickup;
 }
 
-function matches(r, q, status, layanan, dusun, jalur, dateMode) {
-    if (
-        status
-        && String(r.statusPelayanan || "").trim().toLowerCase() !== status.toLowerCase()
-    ) return false;
-    if (layanan && String(r.jenisLayanan || "") !== layanan) return false;
-    if (dusun && String(r.dusun || "") !== dusun) return false;
-    if (jalur && String(r.jalur || "").trim().toLowerCase() !== jalur) return false;
-    if (dateMode === "today" && r.tanggalDatang !== todayYmd()) return false;
-    if (dateMode === "besok") {
-        const d = parseYmd(todayYmd());
-        d.setDate(d.getDate() + 1);
-        if (r.tanggalDatang !== ymdFrom(d)) return false;
-    }
-    if (dateMode === "pekan") {
-        const start = todayYmd();
-        const end = parseYmd(start);
-        end.setDate(end.getDate() + 6);
-        if (r.tanggalDatang < start || r.tanggalDatang > ymdFrom(end)) return false;
-    }
-    if (
-        dateMode === "lewat"
-        && !(
-            r.tanggalDatang < todayYmd()
-            && String(r.statusPelayanan || "").trim().toLowerCase() !== "selesai"
-        )
-    ) return false;
-    if (q) {
-        const needle = q.toLowerCase();
-        const phoneNeedle = q.replace(/\D/g, "").replace(/^62/, "0");
-        const phone = formatPhoneId(r.noWa).replace(/\D/g, "");
-        const hay = [
-            r.nama,
-            r.trackingCode,
-            r.jenisLayanan,
-            r.dusun,
-            r.rt,
-            r.catatan
-        ].join(" ").toLowerCase();
 
-        if (
-            !hay.includes(needle)
-            && (
-                !phoneNeedle
-                || !phone.includes(phoneNeedle)
-            )
-        ) return false;
+/*
+ * Membaca seluruh nilai filter dari halaman.
+ *
+ * Tanggal hari ini, besok, dan akhir pekan dihitung satu kali.
+ * Hasilnya kemudian digunakan untuk memeriksa seluruh pendaftaran.
+ */
+function getFilters() {
+    const today = todayYmd();
+
+    const tomorrowDate = parseYmd(today);
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+
+    const weekEndDate = parseYmd(today);
+    weekEndDate.setDate(weekEndDate.getDate() + 6);
+
+    const search = lower($("f-search").value);
+
+    return {
+        search,
+        phoneSearch: search.replace(/\D/g, "").replace(/^62/, "0"),
+        status: lower($("f-status").value),
+        layanan: $("f-layanan").value,
+        dusun: $("f-dusun").value,
+        jalur: lower($("f-jalur").value),
+        dateMode: $("f-date").value,
+        sortKey: $("f-sort").value,
+        today,
+        tomorrow: ymdFrom(tomorrowDate),
+        weekEnd: ymdFrom(weekEndDate)
+    };
+}
+
+
+/*
+ * Memeriksa apakah tanggal pendaftaran cocok dengan filter tanggal.
+ */
+function matchesDate(row, filters) {
+    if (filters.dateMode === "all") {
+        return true;
     }
+
+    if (filters.dateMode === "today") {
+        return row.tanggalDatang === filters.today;
+    }
+
+    if (filters.dateMode === "besok") {
+        return row.tanggalDatang === filters.tomorrow;
+    }
+
+    if (filters.dateMode === "pekan") {
+        return (
+            row.tanggalDatang >= filters.today
+            && row.tanggalDatang <= filters.weekEnd
+        );
+    }
+
+    if (filters.dateMode === "lewat") {
+        return (
+            row.tanggalDatang < filters.today
+            && lower(row.statusPelayanan) !== "selesai"
+        );
+    }
+
     return true;
 }
 
-function applyFilters() {
-    const q = $("f-search").value.trim().toLowerCase();
-    const status = $("f-status").value;
-    const layanan = $("f-layanan").value;
-    const dusun = $("f-dusun").value;
-    const jalur = $("f-jalur").value;
-    const dateMode = $("f-date").value;
-    const sortKey = $("f-sort").value;
 
-    view = rows.filter((r) => matches(r, q, status, layanan, dusun, jalur, dateMode));
-    view.sort(SORTS[sortKey] || SORTS.newest);
-    page = Math.min(page, Math.max(1, Math.ceil(view.length / PAGE_SIZE)));
+/*
+ * Memeriksa pencarian teks dan nomor WhatsApp.
+ *
+ * Pencarian teks mencakup nama, kode tracking, layanan, dusun,
+ * RT, dan catatan operator.
+ */
+function matchesSearch(row, filters) {
+    if (!filters.search) {
+        return true;
+    }
+
+    const searchableText = [
+        row.nama,
+        row.trackingCode,
+        row.jenisLayanan,
+        row.dusun,
+        row.rt,
+        row.catatan
+    ].join(" ").toLowerCase();
+
+    if (searchableText.includes(filters.search)) {
+        return true;
+    }
+
+    if (!filters.phoneSearch) {
+        return false;
+    }
+
+    const phone = formatPhoneId(row.noWa).replace(/\D/g, "");
+
+    return phone.includes(filters.phoneSearch);
+}
+
+
+/*
+ * Memeriksa satu pendaftaran terhadap seluruh filter aktif.
+ *
+ * Pemeriksaan sederhana dilakukan lebih dahulu agar fungsi segera
+ * berhenti ketika data sudah pasti tidak cocok.
+ */
+function matches(row, filters) {
+    if (
+        filters.status
+        && lower(row.statusPelayanan) !== filters.status
+    ) {
+        return false;
+    }
+
+    if (
+        filters.layanan
+        && String(row.jenisLayanan || "") !== filters.layanan
+    ) {
+        return false;
+    }
+
+    if (
+        filters.dusun
+        && String(row.dusun || "") !== filters.dusun
+    ) {
+        return false;
+    }
+
+    if (
+        filters.jalur
+        && lower(row.jalur) !== filters.jalur
+    ) {
+        return false;
+    }
+
+    if (!matchesDate(row, filters)) {
+        return false;
+    }
+
+    return matchesSearch(row, filters);
+}
+
+
+/*
+ * Menerapkan filter dan pengurutan ke seluruh data.
+ *
+ * Halaman aktif juga dibatasi agar tidak melampaui halaman terakhir
+ * setelah jumlah hasil berubah.
+ */
+function applyFilters() {
+    const filters = getFilters();
+    const sort = SORTS[filters.sortKey] || SORTS.newest;
+
+    view = rows.filter((row) => matches(row, filters));
+    view.sort(sort);
+
+    const lastPage = Math.max(1, Math.ceil(view.length / PAGE_SIZE));
+
+    page = Math.min(page, lastPage);
+
     renderTable();
 }
 
-function renderTable() {
-    const cards = $("cards");
-    cards.textContent = "";
-    const start = (page - 1) * PAGE_SIZE;
-    const slice = view.slice(start, start + PAGE_SIZE);
 
-    slice.forEach((row) => {
-        const card = $("card-tpl").content.firstElementChild.cloneNode(true);
-        card.querySelector('[data-f="nama"]').textContent = row.nama || "-";
-        card.querySelector('[data-f="layanan"]').textContent = row.jenisLayanan || "-";
-        card.querySelector('[data-f="tanggal"]').textContent = formatTanggalDmy(row.tanggalDatang);
-        card.querySelector('[data-f="kode"]').textContent = String(row.trackingCode || "").toUpperCase();
-        card.querySelector('[data-f="wa"]').textContent = formatPhoneId(row.noWa);
-        card.querySelector('[data-f="timestamp"]').textContent = "Didaftarkan " + formatDateTimeId(row.timestamp);
-        const jalur = card.querySelector('[data-f="jalur"]');
-        jalur.dataset.jalur = String(row.jalur || "").toLowerCase();
-        jalur.textContent = row.jalur || "-";
-        const status = card.querySelector('[data-f="status"]');
-        const style = getStatusStyle(row.statusPelayanan);
-        status.dataset.status = style.key;
-        status.textContent = style.label;
-        const catatan = card.querySelector('[data-f="catatan"]');
-        catatan.textContent = row.catatan || "";
-        catatan.classList.toggle("hidden", !row.catatan);
-        card.querySelector('[data-f="manage"]').addEventListener("click", () => openManage(row));
-        cards.appendChild(card);
-    });
-    const empty = view.length === 0;    $("cards-empty").classList.toggle("hidden", !empty);
-    $("cards-empty-text").textContent = rows.length === 0
-        ? "Belum ada pendaftaran."
-        : "Tidak ada data yang cocok dengan filter.";
-    $("cards-empty-reset").classList.toggle(
-        "hidden",
-        rows.length === 0
-    );
-    $("pager-info").textContent = empty ? "" : "Kartu " + (start + 1) + "-" + Math.min(start + PAGE_SIZE, view.length) + " dari " + view.length;
-    const activeFilters = [
+/*
+ * Mengisi satu kartu menggunakan satu data pendaftaran.
+ */
+function createCard(row) {
+    const card = $("card-tpl")
+        .content
+        .firstElementChild
+        .cloneNode(true);
+
+    card.querySelector('[data-f="nama"]').textContent =
+        row.nama || "-";
+
+    card.querySelector('[data-f="layanan"]').textContent =
+        row.jenisLayanan || "-";
+
+    card.querySelector('[data-f="tanggal"]').textContent =
+        formatTanggalDmy(row.tanggalDatang);
+
+    card.querySelector('[data-f="kode"]').textContent =
+        String(row.trackingCode || "").toUpperCase();
+
+    card.querySelector('[data-f="wa"]').textContent =
+        formatPhoneId(row.noWa);
+
+    card.querySelector('[data-f="timestamp"]').textContent =
+        "Didaftarkan " + formatDateTimeId(row.timestamp);
+
+    const jalurBadge = card.querySelector('[data-f="jalur"]');
+
+    jalurBadge.dataset.jalur = lower(row.jalur);
+    jalurBadge.textContent = row.jalur || "-";
+
+    const statusStyle = getStatusStyle(row.statusPelayanan);
+    const statusBadge = card.querySelector('[data-f="status"]');
+
+    statusBadge.dataset.status = statusStyle.key;
+    statusBadge.textContent = statusStyle.label;
+
+    const note = card.querySelector('[data-f="catatan"]');
+
+    note.textContent = row.catatan || "";
+    note.classList.toggle("hidden", !row.catatan);
+
+    const manageButton = card.querySelector('[data-f="manage"]');
+
+    manageButton.addEventListener("click", () => openManage(row));
+
+    return card;
+}
+
+
+/*
+ * Menghitung jumlah filter yang sedang aktif.
+ *
+ * Urutan terbaru tidak dihitung sebagai filter karena merupakan
+ * kondisi awal halaman.
+ */
+function countActiveFilters() {
+    return [
         $("f-search").value.trim(),
         $("f-status").value,
         $("f-layanan").value,
@@ -181,21 +396,72 @@ function renderTable() {
             ? ""
             : $("f-date").value
     ].filter(Boolean).length;
+}
 
-    $("filter-info").textContent = rows.length === 0
-        ? "Belum ada data."
-        : "Menampilkan "
-            + view.length
-            + " dari "
-            + rows.length
-            + " pendaftar. "
-            + activeFilters
-            + " filter aktif.";
+
+/*
+ * Memperbarui pesan ketika daftar kosong.
+ */
+function renderEmptyState(isEmpty, hasNoData) {
+    $("cards-empty").classList.toggle("hidden", !isEmpty);
+
+    $("cards-empty-text").textContent = hasNoData
+        ? "Belum ada pendaftaran."
+        : "Tidak ada data yang cocok dengan filter.";
+
+    $("cards-empty-reset").classList.toggle("hidden", hasNoData);
+}
+
+
+/*
+ * Memperbarui informasi jumlah hasil dan tombol reset.
+ */
+function renderFilterInfo(hasNoData) {
+    $("filter-info").textContent = hasNoData
+        ? "Tidak ada data."
+        : `Menampilkan ${view.length} dari ${rows.length} pendaftar.`;
 
     $("f-reset").disabled =
-        activeFilters === 0
+        countActiveFilters() === 0
         && $("f-sort").value === "newest";
+}
 
-    $("pg-prev").disabled = page <= 1;
-    $("pg-next").disabled = page >= Math.ceil(view.length / PAGE_SIZE);
+
+/*
+ * Memperbarui informasi dan tombol pagination.
+ */
+function renderPagination(start, end, isEmpty) {
+    $("pager-info").textContent = isEmpty
+        ? ""
+        : `Kartu ${start + 1}-${end} dari ${view.length}`;
+
+    $("pg-prev").disabled = page === 1;
+    $("pg-next").disabled = page * PAGE_SIZE >= view.length;
+}
+
+
+/*
+ * Menampilkan kartu pada halaman yang sedang aktif.
+ *
+ * Fungsi ini juga memperbarui tampilan kosong, informasi filter,
+ * dan tombol pagination setelah kartu selesai dibuat.
+ */
+function renderTable() {
+    const cards = $("cards");
+    const start = (page - 1) * PAGE_SIZE;
+    const end = Math.min(start + PAGE_SIZE, view.length);
+    const pageRows = view.slice(start, end);
+
+    cards.textContent = "";
+
+    for (const row of pageRows) {
+        cards.appendChild(createCard(row));
+    }
+
+    const isEmpty = view.length === 0;
+    const hasNoData = rows.length === 0;
+
+    renderEmptyState(isEmpty, hasNoData);
+    renderFilterInfo(hasNoData);
+    renderPagination(start, end, isEmpty);
 }

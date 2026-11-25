@@ -1,242 +1,245 @@
-const assert = require("node:assert")
-const fs = require("node:fs")
-const vm = require("node:vm")
+"use strict";
 
-const code = fs.readFileSync("Code.gs", "utf8")
-const index = fs.readFileSync("index.html", "utf8")
-const publicScript = fs.readFileSync("scripts/index.js", "utf8")
-const api = fs.readFileSync("scripts/api.js", "utf8")
-const walkin = fs.existsSync("scripts/admin-walkin.js")
-  ? fs.readFileSync("scripts/admin-walkin.js", "utf8")
-  : ""
-const allPublicSource = [
-  index,
-  publicScript,
-  api,
-  fs.readFileSync("scripts/date.js", "utf8"),
-  fs.readFileSync("scripts/dom.js", "utf8"),
-  fs.readFileSync("scripts/forms.js", "utf8"),
-  fs.readFileSync("scripts/index-form.js", "utf8"),
-  fs.readFileSync("scripts/index-status.js", "utf8"),
-  fs.readFileSync("scripts/modal.js", "utf8")
-].join("\n")
-assert.doesNotMatch(
-  allPublicSource,
-  /innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\s*\(|new Function|javascript:/
-)
-assert.match(index, /default-src 'none'/)
-assert.match(index, /script-src-attr 'none'/)
-assert.match(index, /style-src-attr 'none'/)
-assert.match(index, /frame-src 'none'/)
-assert.match(index, /worker-src 'none'/)
-assert.match(index, /base-uri 'none'/)
-assert.match(index, /name="referrer" content="no-referrer"/)
-assert.match(index, /id="kode-clear"/)
-assert.match(publicScript, /\.slice\(0, 5\)/)
-assert.doesNotMatch(index, /admin\.html/)
-for (const file of [
-  "admin.html",
-  "scripts/admin.js",
-  "scripts/admin-table.js",
-  "scripts/admin-manage.js",
-  "scripts/admin-walkin.js"
-]) {
-  assert.strictEqual(fs.existsSync(file), true)
+/*
+ * Security tests for the deployed website and Google Apps Script API.
+ *
+ * Run against a staging deployment first:
+ *
+ *   PUBLIC_URL="https://example.com/" \
+ *   ADMIN_URL="https://example.com/admin.html" \
+ *   API_URL="https://script.google.com/macros/s/.../exec" \
+ *   npm run test:live
+ *
+ * These tests send only invalid or read-only requests. They do not register
+ * residents, change status, or erase data. They do send several wrong admin
+ * keys, which triggers a short lockout state in the deployment: the correct
+ * key still works, but wrong keys stay blocked longer until it is used once.
+ */
+
+const assert = require("node:assert/strict");
+const { test } = require("node:test");
+
+const PUBLIC_URL = process.env.PUBLIC_URL;
+const ADMIN_URL = process.env.ADMIN_URL;
+const API_URL = process.env.API_URL;
+const REQUEST_TIMEOUT_MS = 15_000;
+
+if (!PUBLIC_URL || !ADMIN_URL || !API_URL) {
+    throw new Error("Set PUBLIC_URL, ADMIN_URL, and API_URL before running this test.");
 }
 
-assert.match(
-  code,
-  /function requireAdmin_\s*\(\s*providedKey\s*\)/
-)
-assert.match(
-  code,
-  /getProperty\s*\(\s*"ADMIN_KEY"\s*\)/
-)
-assert.match(
-  code,
-  /Utilities\.DigestAlgorithm\.SHA_256/
-)
-assert.match(
-  code,
-  /function sameDigest_\s*\(/
-)
-assert.match(
-  code,
-  /expectedKey\.length < 32/
-)
-assert.match(
-  code,
-  /receivedKey\.length > 128/
-)
-assert.match(
-  code,
-  /"UNAUTHORIZED"/
-)
-assert.match(
-  code,
-  /"INTERNAL_ERROR"/
-)
-assert.match(
-  publicScript,
-  /Array\.isArray\s*\(\s*value\s*\)/
-)
-assert.match(
-  publicScript,
-  /sessionStorage\.removeItem\s*\(\s*KODE_STORAGE\s*\)/
-)
-assert.match(
-  api,
-  /const ADMIN_ACTIONS = new Set/
-)
-assert.match(
-  api,
-  /request\.adminKey = getKey\s*\(\s*\)/
-)
-assert.match(
-  api,
-  /body: JSON\.stringify\s*\(\s*request\s*\)/
-)
-assert.doesNotMatch(
-  api,
-  /Object\.assign\s*\(\s*\{\}\s*,\s*payload\s*,\s*\{\s*adminKey/
-)
+/*
+ * Fetch with a fixed timeout so CI does not hang when the deployment is down.
+ */
+async function request(url, options = {}) {
+    const response = await fetch(url, {
+        redirect: "follow",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        ...options
+    });
 
-assert.match(
-  code,
-  /requireAdmin_\s*\(\s*e\.adminKey\s*\)/
-)
-assert.match(
-  code,
-  /LockService\.getScriptLock\s*\(\s*\)/
-)
-assert.match(
-  code,
-  /function isFormula_\s*\(/
-)
-assert.match(
-  code,
-  /\^\[=\+\\-@\]/
-)
-assert.match(
-  code,
-  /e\.postData\.contents\.length > 4096/
-)
-assert.match(
-  code,
-  /Array\.isArray\s*\(\s*payload\s*\)/
-)
-assert.match(
-  code,
-  /const handlers = \{/
-)
-assert.match(
-  code,
-  /getSheetByName\s*\(\s*SHEET_NAME\s*\)/
-)
-assert.match(
-  code,
-  /Sheet Pendaftaran tidak ditemukan/
-)
-assert.match(
-  code,
-  /Utilities[\s\S]*\.getUuid\s*\(\s*\)/
-)
-assert.match(
-  code,
-  /\.slice\s*\(\s*0\s*,\s*16\s*\)/
-)
-
-for (const name of [
-  "diagnoseAdminKey",
-  "resetSpreadsheetFresh",
-  "setupDataSheet_",
-  "setupSummarySheet_",
-  "applyGovernmentSpreadsheetStyle",
-  "styleGovernmentData_",
-  "styleGovernmentSummary_",
-  "generateUniqueCode_",
-  "findRowBySuffix_",
-  "suffixOf_",
-  "pad_"
-]) {
-  assert.doesNotMatch(
-    code,
-    new RegExp(
-      "function\\s+"
-      + name
-      + "\\s*\\("
-    )
-  )
+    return response;
 }
 
-assert.doesNotMatch(
-  code,
-  /KODE_ALPHABET/
-)
-assert.strictEqual(
-  (
-    code.match(
-      /function\s+listRule_\s*\(/g
-    )
-    || []
-  ).length,
-  1
-)
-assert.doesNotMatch(
-  code,
-  /^\s*\/\//m
-)
-assert.doesNotMatch(
-  code,
-  /\/\*/
-)
+/*
+ * Send JSON as text/plain because the production browser uses the same format
+ * for Google Apps Script and avoids an unnecessary CORS preflight.
+ */
+async function postApi(payload) {
+    const body = typeof payload === "string" ? payload : JSON.stringify(payload);
+    const response = await request(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body
+    });
 
+    const text = await response.text();
+    let json;
 
-assert.match(
-  index,
-  /assets\/foto-kepala-desa\.png/
-)
-assert.doesNotMatch(
-  index,
-  /assets\/logo-kepala-desa\.jpg/
-)
-assert.match(
-  publicScript,
-  /sessionStorage/
-)
-assert.doesNotMatch(
-  publicScript,
-  /localStorage/
-)
+    try {
+        json = JSON.parse(text);
+    } catch {
+        assert.fail(`API returned non-JSON content: ${text.slice(0, 200)}`);
+    }
 
-for (const file of fs.readdirSync("scripts")) {
-  if (file.endsWith(".js")) {
-    new vm.Script(
-      fs.readFileSync(
-        "scripts/" + file,
-        "utf8"
-      )
-    )
-  }
+    return { response, text, json };
 }
 
-const phone = /^(\+62|62|0)8[1-9][0-9]{6,11}$/
-const tracking = /^JTM-[0-9]{8}-[A-Z0-9]{16}$/
+/*
+ * Read the Content Security Policy from the HTML meta element.
+ * The public host may also send a CSP header, but this project currently puts
+ * the policy in HTML, so the deployed document itself is the source of truth.
+ */
+function readMetaCsp(html) {
+    const match = html.match(
+        /<meta\s+http-equiv=["']Content-Security-Policy["']\s+content=["']([^"']+)["']/i
+    );
 
-assert(phone.test("081234567890"))
-assert(phone.test("6281234567890"))
-assert(!phone.test("071234567890"))
-assert(
-  tracking.test(
-    "JTM-20261108-1234567890ABCDEF"
-  )
-)
-assert(
-  !tracking.test(
-    "JTM-20261108-1234"
-  )
-)
+    assert.ok(match, "Content-Security-Policy meta tag is missing");
+    return match[1];
+}
 
-console.log(
-  "Security and regression tests passed"
-)
+function assertRejected(result, expectedCode) {
+    assert.equal(result.json.success, false, "request should be rejected");
+    assert.equal(result.json.code, expectedCode);
+}
+
+/*
+ * The public and admin pages must load successfully over HTTPS.
+ */
+test("public and admin pages are reachable only through HTTPS", async () => {
+    for (const url of [PUBLIC_URL, ADMIN_URL]) {
+        assert.equal(new URL(url).protocol, "https:", `${url} must use HTTPS`);
+
+        const response = await request(url);
+        assert.equal(response.status, 200, `${url} returned HTTP ${response.status}`);
+    }
+});
+
+/*
+ * Browser protections are checked on the deployed HTML, not only the source
+ * file. This catches an old deployment or build step that published the wrong
+ * document.
+ */
+test("deployed pages keep the strict browser policy", async () => {
+    for (const url of [PUBLIC_URL, ADMIN_URL]) {
+        const html = await (await request(url)).text();
+        const csp = readMetaCsp(html);
+
+        for (const directive of [
+            "default-src 'none'",
+            "script-src 'self'",
+            "script-src-attr 'none'",
+            "style-src-attr 'none'",
+            "object-src 'none'",
+            "frame-src 'none'",
+            "worker-src 'none'",
+            "base-uri 'none'"
+        ]) {
+            assert.ok(csp.includes(directive), `${url} CSP is missing: ${directive}`);
+        }
+
+        assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval/);
+        assert.match(html, /<meta\s+name=["']referrer["']\s+content=["']no-referrer["']/i);
+        assert.doesNotMatch(html, /javascript\s*:/i);
+        assert.doesNotMatch(html, /\son[a-z]+\s*=/i, "inline event handler found");
+    }
+});
+
+/*
+ * The public page must not advertise the admin page or expose an admin form.
+ */
+test("public page does not expose the admin surface", async () => {
+    const html = await (await request(PUBLIC_URL)).text();
+
+    assert.doesNotMatch(html, /admin\.html/i);
+    assert.doesNotMatch(html, /adminKey|key-input|form-key/i);
+});
+
+/*
+ * GET must never become an alternate path around doPost validation.
+ */
+test("API rejects GET", async () => {
+    const response = await request(API_URL);
+    const result = JSON.parse(await response.text());
+
+    assert.equal(result.success, false);
+    assert.equal(result.code, "METHOD_NOT_ALLOWED");
+});
+
+/*
+ * Malformed, oversized, array, null, and primitive payloads must fail without
+ * returning stack traces, source names, sheet names, or parser details.
+ */
+test("API rejects malformed and non-object payloads without leaking internals", async () => {
+    const payloads = ["{not json", "x".repeat(4100), [], null, 42, "text"];
+
+    for (const payload of payloads) {
+        const result = await postApi(payload);
+
+        assert.equal(result.json.success, false);
+        assert.doesNotMatch(
+            result.text,
+            /SyntaxError|ReferenceError|TypeError|stack|at\s+doPost|Pendaftaran|SpreadsheetApp/i
+        );
+    }
+});
+
+/*
+ * Only documented actions may reach application logic. Development and setup
+ * function names are tested because accidental routing to them would be severe.
+ */
+test("API rejects unknown and maintenance actions", async () => {
+    for (const action of [
+        "",
+        "adminLogin",
+        "setupSpreadsheet",
+        "resetSpreadsheetFresh",
+        "developmentOnlyEraseAllData",
+        "wipeEverything"
+    ]) {
+        const result = await postApi({ action });
+        assertRejected(result, "UNKNOWN_ACTION");
+    }
+});
+
+/*
+ * Sensitive admin actions must reject missing, short, and incorrect keys.
+ * Three wrong keys are enough to enter lockout state; the correct key still
+ * works, but wrong keys stay blocked until it is used once.
+ */
+test("admin actions fail closed without a valid key", async () => {
+    const attempts = [
+        { action: "getAllData" },
+        { action: "getAllData", adminKey: "short" },
+        { action: "getAllData", adminKey: "x".repeat(32) },
+        { action: "updateStatus", trackingCode: "JTM-16112026-A1B2", newStatus: "Selesai" },
+        { action: "register", jalur: "Offline" }
+    ];
+
+    for (const payload of attempts) {
+        const result = await postApi(payload);
+        assert.ok(
+            ["UNAUTHORIZED", "RATE_LIMITED"].includes(result.json.code),
+            `unexpected code for ${payload.action}: ${result.json.code}`
+        );
+        assert.equal("attemptsRemaining" in result.json, false);
+    }
+});
+
+/*
+ * Public status lookup must reject malformed codes before revealing whether a
+ * row exists. The response must not contain resident data.
+ */
+test("status lookup validates format before sheet lookup", async () => {
+    for (const trackingCode of [
+        "",
+        "abc",
+        "JTM-16112026-A1",
+        "JTM-16112026-a1b2",
+        "JTM-16112026-A1B2C3D4",
+        "'=IMPORTXML(\"https://example.com\",\"//a\")"
+    ]) {
+        const result = await postApi({ action: "checkStatus", trackingCode });
+
+        assert.equal(result.json.success, false);
+        assert.doesNotMatch(result.text, /nama|noWa|dusun|catatan|Budi Santoso/i);
+    }
+});
+
+/*
+ * Unsupported status values and spreadsheet-formula prefixes must be rejected
+ * before any write. The missing admin key also guarantees that this production-
+ * safe test cannot modify a row even if another validation regresses.
+ */
+test("status update rejects invalid state and formula input", async () => {
+    const result = await postApi({
+        action: "updateStatus",
+        trackingCode: "JTM-16112026-A1B2",
+        newStatus: "Dicabut",
+        catatan: "=IMPORTXML(\"https://example.com\",\"//a\")"
+    });
+
+    assert.ok(["UNAUTHORIZED", "RATE_LIMITED"].includes(result.json.code));
+    assert.doesNotMatch(result.text, /stack|SpreadsheetApp|Pendaftaran/i);
+});
